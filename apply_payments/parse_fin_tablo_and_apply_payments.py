@@ -15,6 +15,10 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    StaleElementReferenceException,
+    ElementClickInterceptedException,
+)
 from webdriver_manager.chrome import ChromeDriverManager
 
 # ====== НАСТРОЙКИ ======
@@ -66,6 +70,41 @@ def extract_deal_id(text):
     return m.group(1) if m else ''
 
 
+def safe_click(driver, by, value, timeout=10, retries=3):
+    """Click an element safely, retrying if it becomes stale or intercepted."""
+    for attempt in range(retries):
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((by, value))
+            )
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            element.click()
+            return
+        except (StaleElementReferenceException, ElementClickInterceptedException):
+            if attempt == retries - 1:
+                raise
+            time.sleep(0.5)
+
+
+def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False):
+    """Send keys to an element with retries handling stale/intercepted issues."""
+    for attempt in range(retries):
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((by, value))
+            )
+            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            if clear:
+                element.clear()
+            element.click()
+            element.send_keys(keys)
+            return
+        except (StaleElementReferenceException, ElementClickInterceptedException):
+            if attempt == retries - 1:
+                raise
+            time.sleep(0.5)
+
+
 def main():
     # 1) Запуск драйвера
     driver = init_driver()
@@ -99,84 +138,90 @@ def main():
 
         # Сохранение для проверки
         df = pd.DataFrame(payments)
-        path = os.path.join(os.getcwd(), 'check_payments.xlsx')
-        df.to_excel(path, index=False)
+        path = os.path.abspath(os.path.join(os.getcwd(), 'check_payments.xlsx'))
+        with pd.ExcelWriter(path) as writer:
+            df.to_excel(writer, index=False, sheet_name='FinTablo')
         print(f"Сохранили список: {path}")
 
         # 3) Разнесение оплат в PrintOffice24
         print(f"Начинаем разнесение {len(payments)} платежей...")
         # 3.1 авторизация
         driver.get(f"{PO24_BASE}/login")
-        WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[type="submit"]'))).click()
+        safe_click(driver, By.CSS_SELECTOR, 'button[type="submit"]')
         time.sleep(2)
+
+        results = []
 
         for p in payments:
             print(f"Сделка {p['Номер сделки']}")
-            # 3.2 поиск сделки: переходим на страницу списка сделок
-            driver.get(f"{PO24_BASE}/dealsList")
-            # ждём появления поля поиска
-            inp = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.ID, SEARCH_INPUT_ID))
-            )
-            driver.execute_script("arguments[0].scrollIntoView(true);", inp)
-            inp.clear()
-            inp.send_keys(p['Номер сделки'])
-            inp.send_keys(Keys.ENTER)
-            # ждём и кликаем по сделке
-            xpath = DEAL_LINK_XPATH.format(deal=p['Номер сделки'])
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
-            ).click()
+            try:
+                # 3.2 поиск сделки: переходим на страницу списка сделок
+                driver.get(f"{PO24_BASE}/dealsList")
+                # ждём появления поля поиска
+                safe_send_keys(
+                    driver,
+                    By.ID,
+                    SEARCH_INPUT_ID,
+                    p['Номер сделки'] + Keys.ENTER,
+                    clear=True,
+                )
+                # ждём и кликаем по сделке
+                xpath = DEAL_LINK_XPATH.format(deal=p['Номер сделки'])
+                safe_click(driver, By.XPATH, xpath)
 
-            # 3.3 добавление платежа
-            # прокрутка до кнопки + и клик
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, PLUS_SELECTOR))
-            ).click()
+                # 3.3 добавление платежа
+                # прокрутка до кнопки + и клик
+                safe_click(driver, By.CSS_SELECTOR, PLUS_SELECTOR)
 
-            # ввод суммы
-            amt = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, 'payment_amount'))
-            )
-            amt.clear()
-            amt.send_keys(str(p['Сумма']))
+                # ввод суммы
+                amt = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, 'payment_amount'))
+                )
+                amt.clear()
+                amt.send_keys(str(p['Сумма']))
 
-            # ввод даты (формат DD/MM/YYYY)
-            date_el = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, 'datepicker_new_payment'))
-            )
-            # удаляем текущее значение
-            date_el.click()
-            date_el.send_keys(Keys.CONTROL, 'a')
-            date_el.send_keys(Keys.DELETE)
-            # вводим дату из таблицы
-            date_el.send_keys(p['Дата'])
+                # ввод даты (формат DD/MM/YYYY)
+                date_el = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, 'datepicker_new_payment'))
+                )
+                # удаляем текущее значение
+                date_el.click()
+                date_el.send_keys(Keys.CONTROL, 'a')
+                date_el.send_keys(Keys.DELETE)
+                # вводим дату из таблицы
+                date_el.send_keys(p['Дата'])
 
-            # выбор метода оплаты
-            sel = Select(WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.NAME, 'pay_method'))
-            ))
-            if 'Сбербанк' in p['Сбербанк']:
-                sel.select_by_visible_text('Сбербанк - перевод на карту / с карты')
-            else:
-                sel.select_by_visible_text('Безнал')
+                # выбор метода оплаты
+                sel = Select(WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.NAME, 'pay_method'))
+                ))
+                if 'Сбербанк' in p['Сбербанк']:
+                    sel.select_by_visible_text('Сбербанк - перевод на карту / с карты')
+                else:
+                    sel.select_by_visible_text('Безнал')
 
-                        # создать платёж
-            create_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, 'deal_paid_create'))
-            )
-            driver.execute_script("arguments[0].scrollIntoView(true);", create_btn)
-            create_btn.click()
+                # создать платёж
+                driver.execute_script("arguments[0].scrollIntoView(true);",
+                                     driver.find_element(By.ID, 'deal_paid_create'))
+                safe_click(driver, By.ID, 'deal_paid_create')
 
-            # подтвердить через текст кнопки 'Подтвердить'
-            confirm_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Подтвердить']"))
-            )
-            driver.execute_script("arguments[0].scrollIntoView(true);", confirm_btn)
-            confirm_btn.click()
-            time.sleep(1)
+                # подтвердить через текст кнопки 'Подтвердить'
+                driver.execute_script(
+                    "arguments[0].scrollIntoView(true);",
+                    driver.find_element(By.XPATH, "//button[normalize-space()='Подтвердить']")
+                )
+                safe_click(driver, By.XPATH, "//button[normalize-space()='Подтвердить']")
+                time.sleep(1)
+
+                results.append({**p, 'Статус': 'OK'})
+            except Exception as e:
+                results.append({**p, 'Статус': f'Ошибка: {e}'})
 
         print('✅ Разнесение завершено!')
+
+        if results:
+            with pd.ExcelWriter(path, mode='a', if_sheet_exists='replace') as writer:
+                pd.DataFrame(results).to_excel(writer, index=False, sheet_name='PrintOffice')
 
     finally:
         driver.quit()
