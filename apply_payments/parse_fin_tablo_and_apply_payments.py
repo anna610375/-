@@ -90,7 +90,17 @@ def safe_click(driver, by, value, timeout=10, retries=3, scroll=True, ignore_tim
             time.sleep(0.5)
 
 
-def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False, ignore_timeout=False):
+def safe_send_keys(
+    driver,
+    by,
+    value,
+    keys,
+    timeout=10,
+    retries=3,
+    clear=False,
+    ignore_timeout=False,
+    scroll=False,
+):
     """Send keys to an element with retries handling stale/intercepted issues.
 
     Returns True if keys were sent, False if the element was not found and
@@ -101,12 +111,15 @@ def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False, 
             element = WebDriverWait(driver, timeout).until(
                 EC.element_to_be_clickable((by, value))
             )
+            if scroll:
+                driver.execute_script("arguments[0].scrollIntoView(true);", element)
             if clear:
                 element.clear()
             element.click()
-            # allow passing a list/tuple of keys
             if isinstance(keys, (list, tuple)):
-                element.send_keys(*keys)
+                for k in keys:
+                    element.send_keys(k)
+                    time.sleep(0.1)
             else:
                 element.send_keys(keys)
             return True
@@ -189,6 +202,7 @@ def main():
                     SEARCH_INPUT_ID,
                     [p['Номер сделки'], Keys.ENTER],
                     clear=True,
+                    scroll=True,
                 )
                 # ждём и кликаем по сделке
                 xpath = DEAL_LINK_XPATH.format(deal=p['Номер сделки'])
