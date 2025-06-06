@@ -134,7 +134,8 @@ def main():
 
         # Сохранение для проверки
         df = pd.DataFrame(payments)
-        path = os.path.abspath(os.path.join(os.getcwd(), 'check_payments.xlsx'))
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base_dir, 'check_payments.xlsx')
         with pd.ExcelWriter(path, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='FinTablo')
         print(f"Сохранили список: {path}")
