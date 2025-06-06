@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+check_payments.xlsx
+.env
+venv/
