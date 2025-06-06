@@ -1,7 +1,7 @@
 # shared_utils/config.py
-# Здесь хранятся настройки доступа и пути
+# Настройки доступа читаются из переменных окружения
+import os
 
-PRINTOFFICE_USER = "ansa174"
-PRINTOFFICE_PASS = "Yrx7d)73!"
-FIN_TABLO_PATH      = "C:\\Users\\anna6\\путь\\к\\FinTablo.xlsx"
-
+PRINTOFFICE_USER = os.environ.get("PRINTOFFICE_USER", "")
+PRINTOFFICE_PASS = os.environ.get("PRINTOFFICE_PASS", "")
+FIN_TABLO_PATH = os.environ.get("FIN_TABLO_PATH", "C:\\Users\\anna6\\путь\\к\\FinTablo.xlsx")
