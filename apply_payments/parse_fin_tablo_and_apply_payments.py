@@ -17,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     StaleElementReferenceException,
     ElementClickInterceptedException,
+    TimeoutException,
 )
 from shared_utils.utils import parse_amount, extract_deal_id
 from webdriver_manager.chrome import ChromeDriverManager
@@ -62,8 +63,12 @@ def init_driver():
 
 
 
-def safe_click(driver, by, value, timeout=10, retries=3, scroll=True):
-    """Click an element safely, retrying if it becomes stale or intercepted."""
+def safe_click(driver, by, value, timeout=10, retries=3, scroll=True, ignore_timeout=False):
+    """Click an element safely, retrying if it becomes stale or intercepted.
+
+    Returns True if the click succeeded, False if the element was not found
+    within the timeout and ``ignore_timeout`` is True.
+    """
     for attempt in range(retries):
         try:
             element = WebDriverWait(driver, timeout).until(
@@ -72,15 +77,25 @@ def safe_click(driver, by, value, timeout=10, retries=3, scroll=True):
             if scroll:
                 driver.execute_script("arguments[0].scrollIntoView(true);", element)
             element.click()
-            return
+            return True
+        except TimeoutException:
+            if ignore_timeout:
+                return False
+            raise
         except (StaleElementReferenceException, ElementClickInterceptedException):
             if attempt == retries - 1:
+                if ignore_timeout:
+                    return False
                 raise
             time.sleep(0.5)
 
 
-def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False):
-    """Send keys to an element with retries handling stale/intercepted issues."""
+def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False, ignore_timeout=False):
+    """Send keys to an element with retries handling stale/intercepted issues.
+
+    Returns True if keys were sent, False if the element was not found and
+    ``ignore_timeout`` is True.
+    """
     for attempt in range(retries):
         try:
             element = WebDriverWait(driver, timeout).until(
@@ -94,9 +109,15 @@ def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False):
                 element.send_keys(*keys)
             else:
                 element.send_keys(keys)
-            return
+            return True
+        except TimeoutException:
+            if ignore_timeout:
+                return False
+            raise
         except (StaleElementReferenceException, ElementClickInterceptedException):
             if attempt == retries - 1:
+                if ignore_timeout:
+                    return False
                 raise
             time.sleep(0.5)
 
@@ -144,12 +165,15 @@ def main():
         print(f"Начинаем разнесение {len(payments)} платежей...")
         # 3.1 авторизация (если требуется)
         driver.get(f"{PO24_BASE}/login")
-        try:
-            safe_click(driver, By.CSS_SELECTOR, 'button[type="submit"]', timeout=5)
-            time.sleep(2)
-        except Exception:
-            # возможно, профиль уже авторизован
-            pass
+        # клик по кнопке входа выполняется, только если она доступна
+        safe_click(
+            driver,
+            By.CSS_SELECTOR,
+            'button[type="submit"]',
+            timeout=5,
+            ignore_timeout=True,
+        )
+        time.sleep(2)
 
         results = []
 
