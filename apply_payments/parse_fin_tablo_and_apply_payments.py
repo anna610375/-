@@ -62,14 +62,15 @@ def init_driver():
 
 
 
-def safe_click(driver, by, value, timeout=10, retries=3):
+def safe_click(driver, by, value, timeout=10, retries=3, scroll=True):
     """Click an element safely, retrying if it becomes stale or intercepted."""
     for attempt in range(retries):
         try:
             element = WebDriverWait(driver, timeout).until(
                 EC.element_to_be_clickable((by, value))
             )
-            driver.execute_script("arguments[0].scrollIntoView(true);", element)
+            if scroll:
+                driver.execute_script("arguments[0].scrollIntoView(true);", element)
             element.click()
             return
         except (StaleElementReferenceException, ElementClickInterceptedException):
@@ -85,7 +86,6 @@ def safe_send_keys(driver, by, value, keys, timeout=10, retries=3, clear=False):
             element = WebDriverWait(driver, timeout).until(
                 EC.element_to_be_clickable((by, value))
             )
-            driver.execute_script("arguments[0].scrollIntoView(true);", element)
             if clear:
                 element.clear()
             element.click()
@@ -135,7 +135,7 @@ def main():
         # Сохранение для проверки
         df = pd.DataFrame(payments)
         path = os.path.abspath(os.path.join(os.getcwd(), 'check_payments.xlsx'))
-        with pd.ExcelWriter(path) as writer:
+        with pd.ExcelWriter(path, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='FinTablo')
         print(f"Сохранили список: {path}")
 
@@ -167,7 +167,7 @@ def main():
                 )
                 # ждём и кликаем по сделке
                 xpath = DEAL_LINK_XPATH.format(deal=p['Номер сделки'])
-                safe_click(driver, By.XPATH, xpath)
+                safe_click(driver, By.XPATH, xpath, scroll=False)
 
                 # 3.3 добавление платежа
                 # прокрутка до кнопки + и клик
@@ -214,7 +214,7 @@ def main():
         print('✅ Разнесение завершено!')
 
         if results:
-            with pd.ExcelWriter(path, mode='a', if_sheet_exists='replace') as writer:
+            with pd.ExcelWriter(path, mode='a', if_sheet_exists='replace', engine='openpyxl') as writer:
                 pd.DataFrame(results).to_excel(writer, index=False, sheet_name='PrintOffice')
 
     finally:
