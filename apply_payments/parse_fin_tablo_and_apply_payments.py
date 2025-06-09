@@ -196,14 +196,13 @@ def main():
                 # 3.2 поиск сделки: переходим на страницу списка сделок
                 driver.get(f"{PO24_BASE}/dealsList")
                 # ждём появления поля поиска
-                safe_send_keys(
-                    driver,
-                    By.ID,
-                    SEARCH_INPUT_ID,
-                    [p['Номер сделки'], Keys.ENTER],
-                    clear=True,
-                    scroll=True,
+                inp = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, SEARCH_INPUT_ID))
                 )
+                driver.execute_script("arguments[0].scrollIntoView(true);", inp)
+                inp.clear()
+                inp.send_keys(p['Номер сделки'])
+                inp.send_keys(Keys.ENTER)
                 # ждём и кликаем по сделке
                 xpath = DEAL_LINK_XPATH.format(deal=p['Номер сделки'])
                 safe_click(driver, By.XPATH, xpath, scroll=False)
